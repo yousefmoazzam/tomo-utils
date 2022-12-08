@@ -7,7 +7,6 @@ from pathlib import Path
 import numpy as np
 
 
-XRF_DETECTOR = 'xsp3_addetector-xrf_windows-xsp3_addetector1'
 # Assuming XRF data for now, so data key is templated due to the different
 # elemental map data needing to be combined
 DATA_KEY_TEMPLATE = lambda element: f"/processed/auxiliary/0-XRF Elemental Maps from ROIs/{element}/data"
@@ -28,9 +27,18 @@ def main(args):
             f"The folder {nxs_dir_path} doesn't exist, please check your input"
         raise ValueError(err_str)
 
-    filename_template = lambda scan_no: f"i14-{scan_no}-{XRF_DETECTOR}.nxs"
-    nxs_file_paths = [Path(nxs_dir_path, filename_template(scan_no))
-                      for scan_no in range(start_scan_no, end_scan_no+1)]
+    # Get files in that dir whose scan number lies inside the given range
+    nxs_file_paths = []
+    for i in range(start_scan_no, end_scan_no+1):
+        glob_str = f"i14-{i}-xsp3_addetector-xrf_windows-xsp3_addetector*.nxs"
+        matches = list(nxs_dir_path.glob(glob_str))
+        if len(matches) == 1:
+            nxs_file_paths.append(matches.pop())
+        else:
+            err_str = f"No NeXuS file with the scan number {i} in the given " \
+                      f"range {start_scan_no}-{end_scan_no} was found in " \
+                      f"{str(nxs_dir_path)}"
+            raise ValueError(err_str)
     
     nxs_files_angles = []
     # Check that all these files exist, and keep fetching the associated
