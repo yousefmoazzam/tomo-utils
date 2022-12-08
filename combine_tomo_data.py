@@ -78,7 +78,7 @@ def _get_rotation_angle(file_path: Path,
                         ) -> float:
     """Get the rotation angle associated with the given NeXuS file.
 
-    Paramaters
+    Parameters
     ----------
     file_path : Path
         The file path of the NeXuS file.
