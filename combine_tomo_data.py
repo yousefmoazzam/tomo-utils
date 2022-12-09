@@ -11,15 +11,15 @@ import numpy as np
 # elemental map data needing to be combined
 DATA_KEY_TEMPLATE = lambda element: f"/processed/auxiliary/0-XRF Elemental Maps from ROIs/{element}/data"
 PROJ_IMG_KEY = 0
+ELEMENT_PARENT_PATH = '/processed/auxiliary/0-XRF Elemental Maps from ROIs/'
 
 
 def main(args):
     nxs_dir_path = Path(args[0])
     start_scan_no = int(args[1])
     end_scan_no = int(args[2])
-    element_label = args[3]
-    sample_desc = args[4]
-    out_file_path = args[5]
+    sample_desc = args[3]
+    out_dir = args[4]
 
     # Check if the given directory exists
     if not nxs_dir_path.exists():
@@ -59,17 +59,32 @@ def main(args):
 
     print('The NeXuS files have been sorted!')
 
-    max_x_dim, max_y_dim = _get_proj_max_dims(nxs_file_paths,
-                                              DATA_KEY_TEMPLATE(element_label))
-    print('Combining data...')
-    combined_data, pad_info = \
-        _combine_proj_data(nxs_files_angles, DATA_KEY_TEMPLATE(element_label),
-                           max_x_dim, max_y_dim)
+    # Find all different element maps in the NeXuS files (only need to search
+    # one of the NeXuS files to find all element maps, since all NeXuS files
+    # should contain the same element maps).
+    with h5py.File(str(nxs_file_paths[0]), 'r') as f:
+        all_element_maps = list(f[ELEMENT_PARENT_PATH].keys())
+
+    # Create the output dir if it doesn't already exist
+    Path(out_dir).mkdir(exist_ok=True)
+
     img_keys = np.full(len(nxs_files_angles), PROJ_IMG_KEY)
-    print('Saving file...')
-    _write_combined_proj_data(combined_data,
-                              [angle for (path, angle) in nxs_files_angles],
-                              img_keys, sample_desc, out_file_path)
+
+    # Combine data for all element maps, each one being in a separate NeXuS file
+    for element in all_element_maps:
+        print(f"Combining {element} data...")
+        filename = f"{element}.nxs"
+
+        max_x_dim, max_y_dim = \
+            _get_proj_max_dims(nxs_file_paths, DATA_KEY_TEMPLATE(element))
+
+        combined_data, pad_info = \
+            _combine_proj_data(nxs_files_angles, DATA_KEY_TEMPLATE(element),
+                               max_x_dim, max_y_dim)
+        print('Saving file...')
+        _write_combined_proj_data(combined_data,
+                                  [angle for (path, angle) in nxs_files_angles],
+                                  img_keys, sample_desc, Path(out_dir, filename))
     print('Done!')
 
 
