@@ -1,0 +1,9 @@
+name: tomoutils
+channels:
+  - conda-forge
+dependencies:
+  - python=3.7
+  - numpy
+  - h5py
+  - scikit-image
+  - hyperspy
