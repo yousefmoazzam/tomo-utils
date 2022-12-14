@@ -1,6 +1,7 @@
 import sys
 import os
 import h5py
+import click
 from typing import List, Tuple
 from pathlib import Path
 
@@ -14,30 +15,77 @@ PROJ_IMG_KEY = 0
 ELEMENT_PARENT_PATH = '/processed/auxiliary/0-XRF Elemental Maps from ROIs/'
 
 
-def main(args):
-    nxs_dir_path = Path(args[0])
-    start_scan_no = int(args[1])
-    end_scan_no = int(args[2])
-    sample_desc = args[3]
-    out_dir = args[4]
+@click.command(help='A script to combine XRF data from multiple NeXuS files')
+@click.option(
+    '--nxs-dir',
+    required=True,
+    type=click.Path(path_type=Path),
+    help='Folder containing the NeXuS files to combine'
+)
+@click.option(
+    '--start-scan',
+    required=True,
+    type=int,
+    help='Scan number marking the start of the range of NeXuS files to combine'
+)
+@click.option(
+    '--end-scan',
+    required=True,
+    type=int,
+    help='Scan number marking the end of the range of NeXuS files to combine'
+)
+@click.option(
+    '--out-dir',
+    required=True,
+    type=str,
+    help="Desired folder to contain the output (will be created if it doesn't exist)"
+)
+@click.option(
+    '--sample-desc',
+    required=True,
+    type=str,
+    help='Short description of sample to be put into output NeXuS file metadata'
+)
+def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
+         out_dir: str):
+    """
+    Parameters
+    ----------
+    nxs_dir : Path
+        The absolute path to the directory containing the different NeXuS files
+        to combine.
 
+    start_scan_no : int
+        The scan number marking the start of the range of NeXuS files to
+        combine.
+
+    end_scan_no : int
+        The scan number marking the end of the range of NeXuS files to combine.
+
+    sample_desc : str
+        A short description of the sample that will be place in the output NeXuS
+        file metadata.
+
+    out_dir : str
+        The absolute path to the desired output directory.
+    """
     # Check if the given directory exists
-    if not nxs_dir_path.exists():
+    if not nxs_dir.exists():
         err_str = \
-            f"The folder {nxs_dir_path} doesn't exist, please check your input"
+            f"The folder {nxs_dir} doesn't exist, please check your input"
         raise ValueError(err_str)
 
     # Get files in that dir whose scan number lies inside the given range
     nxs_file_paths = []
-    for i in range(start_scan_no, end_scan_no+1):
+    for i in range(start_scan, end_scan+1):
         glob_str = f"i14-{i}-xsp3_addetector-xrf_windows-xsp3_addetector*.nxs"
-        matches = list(nxs_dir_path.glob(glob_str))
+        matches = list(nxs_dir.glob(glob_str))
         if len(matches) == 1:
             nxs_file_paths.append(matches.pop())
         else:
             err_str = f"No NeXuS file with the scan number {i} in the given " \
-                      f"range {start_scan_no}-{end_scan_no} was found in " \
-                      f"{str(nxs_dir_path)}"
+                      f"range {start_scan}-{end_scan} was found in " \
+                      f"{str(nxs_dir)}"
             raise ValueError(err_str)
     
     nxs_files_angles = []
@@ -264,4 +312,4 @@ def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()
