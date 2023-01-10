@@ -8,12 +8,13 @@ import numpy as np
 from skimage import transform as tf
 
 sys.path.insert(0, '/dls_sw/i14/scripts/i14_python/xanes_utility')
-from mutual import estimate_shift2D_mutual
 # TODO: This is currently a workaround to not having a system-wide conda env
-# with Hyperspy installed in it, and it's dependent on a local clone of the git
-# repo which can be changed at any time, so it's not a robust solution...
-sys.path.insert(0, '/dls_sw/i14/scripts/i14_python/working/hyperspy_developer')
+# with a compatible version of Hyperspy installed in it, and it's dependent on a
+# local clone of the git repo which can be changed at any time, so it's not a
+# robust solution...
+sys.path.insert(0, '/dls_sw/i14/scripts/i14_python/tomo_utility/hyperspy')
 import hyperspy.api as hs
+from mutual import estimate_shift2D_mutual
 
 
 @click.command(
