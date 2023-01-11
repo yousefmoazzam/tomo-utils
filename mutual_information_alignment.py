@@ -67,7 +67,7 @@ def main(in_file: Path, out_file: Path, roi: Tuple[int, int, int, int],
     """
     # Load the combined data
     print('Loading data...')
-    with h5py.File(in_file) as f:
+    with h5py.File(in_file, 'r') as f:
         data = f['/tomo_entry/data/data'][:, :, :]
 
     # Create Signal2D objct to hold the data
