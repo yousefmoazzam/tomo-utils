@@ -68,7 +68,7 @@ def main(in_file: Path, out_file: Path, roi: Tuple[int, int, int, int],
     # Load the combined data
     print('Loading data...')
     with h5py.File(in_file, 'r') as f:
-        data = f['/tomo_entry/data/data'][:, :, :]
+        data = f['/entry/tomo_entry/data/data'][:, :, :]
 
     # Create Signal2D objct to hold the data
     signal = hs.signals.Signal2D(data)
@@ -96,7 +96,7 @@ def main(in_file: Path, out_file: Path, roi: Tuple[int, int, int, int],
     # Write the aligned projections to an hdf file
     print('Saving output...')
     with h5py.File(out_file, 'a') as f_out:
-        f_out.create_dataset('/data', data=shifted_data)
+        f_out.create_dataset('/entry/tomo_entry/data/data', data=shifted_data)
 
 
 if __name__ == '__main__':

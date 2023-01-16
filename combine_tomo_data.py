@@ -282,11 +282,12 @@ def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
     """
     with h5py.File(file_path, 'w') as f:
         # some entries/metadata
-        nxentry = f.create_group("tomo_entry")
+        nxentry = f.create_group('entry')
         nxentry.attrs["NX_class"] = "NXentry"
-        nxentry.attrs["definition"] = "NXtomo"
+        nxtomoentry = nxentry.create_group("tomo_entry")
+        nxtomoentry.attrs["NX_class"] = "NXsubentry"
 
-        nxinstrument = nxentry.create_group("instrument")
+        nxinstrument = nxtomoentry.create_group("instrument")
         nxinstrument.attrs["NX_class"] = "NXinstrument"
 
         # add image keys
@@ -295,12 +296,12 @@ def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
         imgkey = nxdetector.create_dataset("image_key", data=img_keys)
 
         # add description of sample
-        nxsample = nxentry.create_group("sample")
+        nxsample = nxtomoentry.create_group("sample")
         nxsample.attrs["NX_class"] = "NXsample"
         nxsample.attrs["name"] = sample_desc
 
         # add 3D array containing combined data
-        nxdata = nxentry.create_group("data")
+        nxdata = nxtomoentry.create_group("data")
         nxdata.attrs["NX_class"] = "NXdata"
         phase = nxdata.create_dataset("data", data=data)
         phase.attrs["signal"] = [1,]
