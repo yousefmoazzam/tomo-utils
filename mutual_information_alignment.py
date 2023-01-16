@@ -69,6 +69,8 @@ def main(in_file: Path, out_file: Path, roi: Tuple[int, int, int, int],
     print('Loading data...')
     with h5py.File(in_file, 'r') as f:
         data = f['/entry/tomo_entry/data/data'][:, :, :]
+        rot_angles = f['/entry/tomo_entry/data/rotation_angle'][:]
+        im_key = f['/entry/tomo_entry/instrument/detector/image_key'][:]
 
     # Create Signal2D objct to hold the data
     signal = hs.signals.Signal2D(data)
@@ -97,6 +99,10 @@ def main(in_file: Path, out_file: Path, roi: Tuple[int, int, int, int],
     print('Saving output...')
     with h5py.File(out_file, 'a') as f_out:
         f_out.create_dataset('/entry/tomo_entry/data/data', data=shifted_data)
+        f_out.create_dataset('/entry/tomo_entry/data/rotation_angle',
+                             data=rot_angles)
+        f_out.create_dataset('/entry/tomo_entry/instrument/detector/image_key',
+                             data=im_key)
 
 
 if __name__ == '__main__':
