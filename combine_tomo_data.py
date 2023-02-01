@@ -19,7 +19,7 @@ ELEMENT_PARENT_PATH = '/processed/auxiliary/0-XRF Elemental Maps from ROIs/'
 @click.option(
     '--nxs-dir',
     required=True,
-    type=click.Path(path_type=Path),
+    type=click.Path(),
     help='Folder containing the NeXuS files to combine'
 )
 @click.option(
@@ -70,6 +70,7 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
         The absolute path to the desired output directory.
     """
     # Check if the given directory exists
+    nxs_dir = Path(nxs_dir)
     if not nxs_dir.exists():
         err_str = \
             f"The folder {nxs_dir} doesn't exist, please check your input"
