@@ -8,14 +8,25 @@ from pathlib import Path
 import numpy as np
 
 
-# Assuming XRF data for now, so data key is templated due to the different
-# elemental map data needing to be combined
-DATA_KEY_TEMPLATE = lambda element: f"/processed/auxiliary/0-XRF Elemental Maps from ROIs/{element}/data"
 PROJ_IMG_KEY = 0
 ELEMENT_PARENT_PATH = '/processed/auxiliary/0-XRF Elemental Maps from ROIs/'
+XRF_DATA_KEY_TEMPLATE = lambda element: f"/processed/auxiliary/0-XRF Elemental Maps from ROIs/{element}/data"
+XRF_ANGLE_PATH = "/entry/instrument/sample/sample_rot"
+XRF_NXS_FILE = lambda i: f"i14-{i}-xsp3_addetector-xrf_windows-xsp3_addetector*.nxs"
+DPC_DATA_KEY_TEMPLATE = lambda entry, dataset: f"/{entry}/{dataset}/data"
+DPC_ANGLE_PATH = "/entry3/auxiliary/original_metadata/entry/instrument/sample/sample_rot"
+DPC_NXS_FILE = lambda i: f"i14-{i}dpc.nxs"
 
 
-@click.command(help='A script to combine XRF data from multiple NeXuS files')
+@click.command(
+    help='A script to combine XRF or DPC data from multiple NeXuS files'
+)
+@click.option(
+    "--data-type",
+    required=True,
+    type=click.Choice(["xrf", "dpc"], case_sensitive=False),
+    help="Specify the type of input data to combine"
+)
 @click.option(
     '--nxs-dir',
     required=True,
@@ -47,7 +58,7 @@ ELEMENT_PARENT_PATH = '/processed/auxiliary/0-XRF Elemental Maps from ROIs/'
     help='Short description of sample to be put into output NeXuS file metadata'
 )
 def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
-         out_dir: str):
+         out_dir: str, data_type: str):
     """
     Parameters
     ----------
@@ -68,7 +79,23 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
 
     out_dir : str
         The absolute path to the desired output directory.
+
+    data_type : str
+        The type of the input data to be combined.
     """
+    # Define several things based on if the input data to combine is XRF or DPC:
+    # - the string used to search for the NeXuS files to combine
+    # - the path inside the NeXuS files to find the rotation angle information
+    # - the function for getting the datasets within the NeXuS files
+    if data_type.lower() == "xrf":
+        _get_nxs_file = XRF_NXS_FILE
+        angle_path = XRF_ANGLE_PATH
+        _get_datasets = _get_xrf_datasets
+    else:
+        _get_nxs_file = DPC_NXS_FILE
+        angle_path = DPC_ANGLE_PATH
+        _get_datasets = _get_dpc_datasets
+
     # Check if the given directory exists
     nxs_dir = Path(nxs_dir)
     if not nxs_dir.exists():
@@ -79,8 +106,8 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
     # Get files in that dir whose scan number lies inside the given range
     nxs_file_paths = []
     for i in range(start_scan, end_scan+1):
-        glob_str = f"i14-{i}-xsp3_addetector-xrf_windows-xsp3_addetector*.nxs"
-        matches = list(nxs_dir.glob(glob_str))
+        search_term = _get_nxs_file(i)
+        matches = list(nxs_dir.glob(search_term))
         if len(matches) == 1:
             nxs_file_paths.append(matches.pop())
         else:
@@ -97,7 +124,7 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
             err_str = f"The file {file_path} doesn't exist."
             raise ValueError(err_str)
         else:
-            angle = _get_rotation_angle(file_path)
+            angle = _get_rotation_angle(file_path, angle_path)
             nxs_files_angles.append((file_path, angle))
     
     print('All required files exist!')
@@ -108,33 +135,77 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
 
     print('The NeXuS files have been sorted!')
 
-    # Find all different element maps in the NeXuS files (only need to search
-    # one of the NeXuS files to find all element maps, since all NeXuS files
-    # should contain the same element maps).
+    # Find all different datasets in the NeXuS files (only need to search one of
+    # the NeXuS files to find all datasets, since all NeXuS files should contain
+    # the same datasets).
     with h5py.File(str(nxs_file_paths[0]), 'r') as f:
-        all_element_maps = list(f[ELEMENT_PARENT_PATH].keys())
+        all_datasets = _get_datasets(f)
 
     # Create the output dir if it doesn't already exist
     Path(out_dir).mkdir(exist_ok=True)
 
     img_keys = np.full(len(nxs_files_angles), PROJ_IMG_KEY)
 
-    # Combine data for all element maps, each one being in a separate NeXuS file
-    for element in all_element_maps:
-        print(f"Combining {element} data...")
-        filename = f"{element}.nxs"
+    # Combine data for the given dataset from each separate NeXuS file
+    for dataset in all_datasets:
+        if data_type == "xrf":
+            print(f"Combining element {dataset}...")
+            filename = f"{dataset}.nxs"
+            nxs_path = XRF_DATA_KEY_TEMPLATE(dataset)
+        elif data_type == "dpc":
+            print(f"Combining dataset {dataset[1]}")
+            filename = f"{dataset[1]}.nxs"
+            nxs_path = DPC_DATA_KEY_TEMPLATE(dataset[0], dataset[1])
 
         max_x_dim, max_y_dim = \
-            _get_proj_max_dims(nxs_file_paths, DATA_KEY_TEMPLATE(element))
+            _get_proj_max_dims(nxs_file_paths, nxs_path)
 
         combined_data, pad_info = \
-            _combine_proj_data(nxs_files_angles, DATA_KEY_TEMPLATE(element),
-                               max_x_dim, max_y_dim)
+            _combine_proj_data(nxs_files_angles, nxs_path, max_x_dim, max_y_dim)
         print('Saving file...')
         _write_combined_proj_data(combined_data,
                                   [angle for (path, angle) in nxs_files_angles],
                                   img_keys, sample_desc, Path(out_dir, filename))
     print('Done!')
+
+
+def _get_xrf_datasets(hdf5_file: h5py.File) -> List[str]:
+    """
+    Generate a list of strings describing the datasets in the given XRF NeXuS
+    file.
+
+    Example: suppose there is an XRF dataset with path
+    "/processed/auxiliary/0-XRF Elemental Maps from ROIs/Ca-Ka/data" within the
+    NeXuS files. The string associated with this dataset in the returned list
+    would be "Ca-Ka".
+    """
+    return list(hdf5_file[ELEMENT_PARENT_PATH].keys())
+
+
+def _get_dpc_datasets(hdf5_file: h5py.File) -> List[Tuple[str, str]]:
+    """
+    Generate a list of tuples describing the datasets in the given DPC NeXuS
+    file.
+
+    Example: suppose there is a DPC dataset with path "/entry1/Absorption/data"
+    within the NeXuS files.
+
+    The first entry in the associated tuple is the top-level group for this DPC
+    dataset path (ie, "/entry1"). The second entry in the associated tuple is
+    the second-level group for this DPC dataset path (ie, "Absorption").
+    """
+    entry_keys = list(hdf5_file["/"].keys())
+    # The only dataset that is not needed from the DPC processed to be combined
+    # is "/entry3/merlin_addetector/data", so it's safe to remove from the list
+    # of keys
+    entry_keys.remove("entry3")
+    datasets = []
+    dataset_lambda = lambda d: d if "data" in d else None
+    for entry_key in entry_keys:
+        dataset = hdf5_file[entry_key].visit(dataset_lambda)
+        datasets.append((entry_key, dataset.split("/")[0]))
+
+    return datasets
 
 
 def _get_rotation_angle(file_path: Path,
