@@ -57,8 +57,13 @@ DPC_NXS_FILE = lambda i: f"i14-{i}dpc.nxs"
     type=str,
     help='Short description of sample to be put into output NeXuS file metadata'
 )
+@click.argument(
+    "datasets",
+    required=False,
+    nargs=-1
+)
 def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
-         out_dir: str, data_type: str):
+         out_dir: str, data_type: str, datasets: Tuple[str]):
     """
     Parameters
     ----------
@@ -115,6 +120,46 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
                       f"range {start_scan}-{end_scan} was found in " \
                       f"{str(nxs_dir)}"
             raise ValueError(err_str)
+
+    if len(datasets) > 0:
+        # Verify that the given dataset(s) exist in the NeXuS files, by checking
+        # the first NeXuS file in the scan number range for the dataset(s)
+        with h5py.File(nxs_file_paths[0], "r") as f:
+            all_datasets = []
+            for group in datasets:
+                try:
+                    # Verify if the group containing the given dataset exists
+                    group_lambda = lambda g: g if group in g else None
+                    group_match = f["/"].visit(group_lambda)
+                    assert group_match is not None
+                except AssertionError:
+                    err_str = f"The dataset \'{group}\' was not found in " \
+                              f"the NeXuS file \'{nxs_file_paths[0]}\', " \
+                              f"please double-check if it is correct (typos, " \
+                              f"lowercase vs. uppercase letters, hyphens vs. " \
+                              f"underscores, etc)?"
+                    print(err_str)
+                    sys.exit()
+
+                try:
+                    # Verify if the group contains a `/data` entry
+                    dataset_lambda = lambda d: d if "data" in d else None
+                    dataset_match = f[group_match].visit(dataset_lambda)
+                    assert dataset_match is not None
+                    if data_type == "xrf":
+                        all_datasets.append(group)
+                    else:
+                        all_datasets.append((group_match.split("/")[0], group))
+                except AssertionError:
+                    err_str = f"The dataset \'{group}/data\' was not found " \
+                              f"in the NeXuS file \'{nxs_file_paths[0]}\', " \
+                              f"please double-check if {group} has a " \
+                              f"\'/data\' entry?"
+                    print(err_str)
+                    sys.exit()
+            info_str = ("All specified datasets have been verified to exist in "
+                        "the NeXuS files")
+            print(info_str)
     
     nxs_files_angles = []
     # Check that all these files exist, and keep fetching the associated
@@ -135,11 +180,12 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
 
     print('The NeXuS files have been sorted!')
 
-    # Find all different datasets in the NeXuS files (only need to search one of
-    # the NeXuS files to find all datasets, since all NeXuS files should contain
-    # the same datasets).
-    with h5py.File(str(nxs_file_paths[0]), 'r') as f:
-        all_datasets = _get_datasets(f)
+    if len(datasets) == 0:
+        # Find all different datasets in the NeXuS files (only need to search
+        # one of the NeXuS files to find all datasets, since all NeXuS files
+        # should contain the same datasets).
+        with h5py.File(str(nxs_file_paths[0]), 'r') as f:
+            all_datasets = _get_datasets(f)
 
     # Create the output dir if it doesn't already exist
     Path(out_dir).mkdir(exist_ok=True)
