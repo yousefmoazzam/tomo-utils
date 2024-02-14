@@ -239,8 +239,12 @@ def main(
         max_x_dim, max_y_dim = \
             _get_proj_max_dims(nxs_file_paths, nxs_path)
 
-        combined_data, pad_info = \
-            _combine_proj_data(nxs_files_angles, nxs_path, max_x_dim, max_y_dim)
+        combined_data, pad_info = _combine_proj_data(
+            [filepath for (filepath, _) in nxs_files_angles],
+            nxs_path,
+            max_x_dim,
+            max_y_dim,
+        )
         print('Saving file...')
         _write_combined_proj_data(combined_data,
                                   [angle for (path, angle) in nxs_files_angles],
@@ -343,17 +347,19 @@ def _get_proj_max_dims(file_paths: List[Path], nxs_path: str
     return x_dim, y_dim
 
 
-def _combine_proj_data(file_paths: List[Tuple[Path, float]], nxs_path:str,
-                       x_dim:int, y_dim:int) -> Tuple[np.ndarray, np.ndarray]:
+def _combine_proj_data(
+    file_paths: List[Path],
+    nxs_path: str,
+    x_dim: int,
+    y_dim: int,
+) -> Tuple[np.ndarray, np.ndarray]:
     """Combine projections from multiple NeXuS files into a single 3D numpy
     array.
 
     Parameters
     ----------
-    file_paths : List[Tuple[Path, float]]
-        A list of tuples containing:
-            - The file path to a NeXuS file
-            - The asscoaited rotation angle to the data in that NeXuS file
+    file_paths : List[Path]
+        A list of NeXuS file paths
 
     nxs_path : str
         The common path within the NeXuS files where the data to be combined is
@@ -372,7 +378,7 @@ def _combine_proj_data(file_paths: List[Tuple[Path, float]], nxs_path:str,
 
     # Iterate through all NeXuS files to combine their data into a single file
     # containing a stack of projections
-    for idx, (file_path, _) in enumerate(file_paths):
+    for idx, file_path in enumerate(file_paths):
         with h5py.File(str(file_path), 'r') as proj:
             data = proj[nxs_path][()]
         data = np.squeeze(data)
