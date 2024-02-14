@@ -2,7 +2,7 @@ import sys
 import os
 import h5py
 import click
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Tuple, Union
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +20,14 @@ DPC_NXS_FILE = lambda i: f"i14-{i}dpc.nxs"
 
 class RegularScan(NamedTuple):
     path: Path
+
+
+class HalfScans(NamedTuple):
+    top_path: Path
+    bottom_path: Path
+
+
+ScanConfig = Union[RegularScan, HalfScans]
 
 
 @click.command(
@@ -354,7 +362,7 @@ def _get_proj_max_dims(file_paths: List[Path], nxs_path: str
 
 
 def _combine_proj_data(
-    scan_configs: List[RegularScan],
+    scan_configs: List[ScanConfig],
     nxs_path: str,
     x_dim: int,
     y_dim: int,
@@ -364,9 +372,9 @@ def _combine_proj_data(
 
     Parameters
     ----------
-    scan_configs : List[RegularScan]
-        A list of scan config objects that contain a NeXuS file path to the
-        associated scan.
+    scan_configs : List[ScanConfig]
+        A list of scan config objects that contain NeXuS file path info for the
+        associated scan(s).
 
     nxs_path : str
         The common path within the NeXuS files where the data to be combined is
@@ -386,40 +394,72 @@ def _combine_proj_data(
     # Iterate through all NeXuS files to combine their data into a single file
     # containing a stack of projections
     for idx, scan_config in enumerate(scan_configs):
-        with h5py.File(scan_config.path, 'r') as proj:
-            data = proj[nxs_path][()]
-        data = np.squeeze(data)
-
-        # If a projection has smaller dimensions than the max, then
-        # - pad the data using the minimum value
-        # - place the smaller projection in the (approximate) centre of the max
-        # dimensions
-        if data.shape[0] != y_dim or data.shape[1] != x_dim:
-            new_data = np.zeros((y_dim, x_dim)) + np.min(data)
-            # calculate x and y shifts to center the smaller image within the
-            # max dim values
-            y_diff = y_dim - data.shape[0]
-            y_shift = y_diff // 2
-            x_diff = x_dim - data.shape[1]
-            x_shift = x_diff // 2
-            # y padding
-            pad_info[idx, 0] = y_shift
-            pad_info[idx, 1] = data.shape[0] + y_shift
-            # x padding
-            pad_info[idx, 2] = x_shift
-            pad_info[idx, 3] = data.shape[1] + x_shift
-            new_data[y_shift:data.shape[0] + y_shift,
-                x_shift:data.shape[1] + x_shift] = data
+        if isinstance(scan_config, RegularScan):
+            _get_regular_scan_data(
+                idx,
+                scan_config.path,
+                nxs_path,
+                combined_data,
+                pad_info,
+                x_dim,
+                y_dim,
+            )
         else:
-            # y padding
-            pad_info[idx, 0] = pad_info[idx, 1] = 0
-            # x padding
-            pad_info[idx, 2] = pad_info[idx, 3] = 0
-            new_data = data
-
-        combined_data[idx,:,:] = new_data
+            raise ValueError(
+                f"Unsupported scan config type: {type(scan_config)}"
+            )
 
     return combined_data, pad_info
+
+
+def _get_regular_scan_data(
+    idx: int,
+    filepath: Path,
+    data_path: str,
+    combined_data: np.ndarray,
+    pad_info: np.ndarray,
+    x_dim: int,
+    y_dim: int,
+):
+    """
+    Gets projection data from the NeXuS file of a single "regular" scan
+    ("regular" meaning that the scan completed during data acquisition with no
+    issues).
+
+    Note that this function modifies the `combined_data` and `pad_info` input.
+    """
+    with h5py.File(filepath, 'r') as proj:
+        data = proj[data_path][()]
+    data = np.squeeze(data)
+
+    # If a projection has smaller dimensions than the max, then
+    # - pad the data using the minimum value
+    # - place the smaller projection in the (approximate) centre of the max
+    # dimensions
+    if data.shape[0] != y_dim or data.shape[1] != x_dim:
+        new_data = np.zeros((y_dim, x_dim)) + np.min(data)
+        # calculate x and y shifts to center the smaller image within the
+        # max dim values
+        y_diff = y_dim - data.shape[0]
+        y_shift = y_diff // 2
+        x_diff = x_dim - data.shape[1]
+        x_shift = x_diff // 2
+        # y padding
+        pad_info[idx, 0] = y_shift
+        pad_info[idx, 1] = data.shape[0] + y_shift
+        # x padding
+        pad_info[idx, 2] = x_shift
+        pad_info[idx, 3] = data.shape[1] + x_shift
+        new_data[y_shift:data.shape[0] + y_shift,
+            x_shift:data.shape[1] + x_shift] = data
+    else:
+        # y padding
+        pad_info[idx, 0] = pad_info[idx, 1] = 0
+        # x padding
+        pad_info[idx, 2] = pad_info[idx, 3] = 0
+        new_data = data
+
+    combined_data[idx,:,:] = new_data
 
 
 def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
