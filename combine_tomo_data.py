@@ -2,7 +2,7 @@ import sys
 import os
 import h5py
 import click
-from typing import List, Tuple
+from typing import List, NamedTuple, Tuple
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +16,10 @@ XRF_NXS_FILE = lambda i: f"i14-{i}-xsp3_addetector-xrf_windows-xsp3_addetector*.
 DPC_DATA_KEY_TEMPLATE = lambda entry, dataset: f"/{entry}/{dataset}/data"
 DPC_ANGLE_PATH = "/entry3/auxiliary/original_metadata/entry/instrument/sample/sample_rot"
 DPC_NXS_FILE = lambda i: f"i14-{i}dpc.nxs"
+
+
+class RegularScan(NamedTuple):
+    path: Path
 
 
 @click.command(
@@ -194,7 +198,7 @@ def main(
                         "the NeXuS files")
             print(info_str)
     
-    nxs_files_angles = []
+    nxs_files_angles: List[Tuple[RegularScan, float]] = []
     # Check that all these files exist, and keep fetching the associated
     # rotation angle from them as long as they do exist
     for file_path in nxs_file_paths:
@@ -203,7 +207,9 @@ def main(
             raise ValueError(err_str)
         else:
             angle = _get_rotation_angle(file_path, angle_path)
-            nxs_files_angles.append((file_path, angle))
+            nxs_files_angles.append(
+                (RegularScan(file_path), angle)
+            )
     
     print('All required files exist!')
 
@@ -240,7 +246,7 @@ def main(
             _get_proj_max_dims(nxs_file_paths, nxs_path)
 
         combined_data, pad_info = _combine_proj_data(
-            [filepath for (filepath, _) in nxs_files_angles],
+            [scan_config for (scan_config, _) in nxs_files_angles],
             nxs_path,
             max_x_dim,
             max_y_dim,
@@ -348,7 +354,7 @@ def _get_proj_max_dims(file_paths: List[Path], nxs_path: str
 
 
 def _combine_proj_data(
-    file_paths: List[Path],
+    scan_configs: List[RegularScan],
     nxs_path: str,
     x_dim: int,
     y_dim: int,
@@ -358,8 +364,9 @@ def _combine_proj_data(
 
     Parameters
     ----------
-    file_paths : List[Path]
-        A list of NeXuS file paths
+    scan_configs : List[RegularScan]
+        A list of scan config objects that contain a NeXuS file path to the
+        associated scan.
 
     nxs_path : str
         The common path within the NeXuS files where the data to be combined is
@@ -371,15 +378,15 @@ def _combine_proj_data(
     y_dim : int
         The size of the y dimension of the projections in the result.
     """
-    no_of_angles = len(file_paths)
+    no_of_angles = len(scan_configs)
     angles = np.empty(no_of_angles)
     combined_data = np.empty((no_of_angles, y_dim, x_dim))
     pad_info = np.empty((no_of_angles, 4), dtype=int)
 
     # Iterate through all NeXuS files to combine their data into a single file
     # containing a stack of projections
-    for idx, file_path in enumerate(file_paths):
-        with h5py.File(str(file_path), 'r') as proj:
+    for idx, scan_config in enumerate(scan_configs):
+        with h5py.File(scan_config.path, 'r') as proj:
             data = proj[nxs_path][()]
         data = np.squeeze(data)
 
