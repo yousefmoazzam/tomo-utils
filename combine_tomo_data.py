@@ -46,6 +46,14 @@ DPC_NXS_FILE = lambda i: f"i14-{i}dpc.nxs"
     help='Scan number marking the end of the range of NeXuS files to combine'
 )
 @click.option(
+    "--skip",
+    required=False,
+    multiple=True,
+    type=int,
+    default=(),
+    help="Scan numbers to skip within the given range",
+)
+@click.option(
     '--out-dir',
     required=True,
     type=str,
@@ -62,8 +70,16 @@ DPC_NXS_FILE = lambda i: f"i14-{i}dpc.nxs"
     required=False,
     nargs=-1
 )
-def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
-         out_dir: str, data_type: str, datasets: Tuple[str]):
+def main(
+    nxs_dir: Path,
+    start_scan: int,
+    end_scan: int,
+    skip: Tuple[int],
+    sample_desc: str,
+    out_dir: str,
+    data_type: str,
+    datasets: Tuple[str]
+):
     """
     Parameters
     ----------
@@ -78,6 +94,9 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
     end_scan_no : int
         The scan number marking the end of the range of NeXuS files to combine.
 
+    skip : List[int]
+        The scan numbers to skip.
+
     sample_desc : str
         A short description of the sample that will be place in the output NeXuS
         file metadata.
@@ -88,6 +107,17 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
     data_type : str
         The type of the input data to be combined.
     """
+    if skip != ():
+        scan_numbers = list(range(start_scan, end_scan+1))
+        for scan_no in skip:
+            if scan_no not in scan_numbers:
+                warn_str = (
+                    f"WARN: Scan number {scan_no} has been given to skip, "
+                    f"but is not within the scan number range {start_scan} - "
+                    f"{end_scan}, ignoring"
+                )
+                print(warn_str)
+
     # Define several things based on if the input data to combine is XRF or DPC:
     # - the string used to search for the NeXuS files to combine
     # - the path inside the NeXuS files to find the rotation angle information
@@ -111,6 +141,9 @@ def main(nxs_dir: Path, start_scan: int, end_scan: int, sample_desc: str,
     # Get files in that dir whose scan number lies inside the given range
     nxs_file_paths = []
     for i in range(start_scan, end_scan+1):
+        if i in skip:
+            print(f"Skipping scan number {i}")
+            continue
         search_term = _get_nxs_file(i)
         matches = list(nxs_dir.glob(search_term))
         if len(matches) == 1:
