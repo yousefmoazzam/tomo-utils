@@ -260,9 +260,14 @@ def main(
             max_y_dim,
         )
         print('Saving file...')
-        _write_combined_proj_data(combined_data,
-                                  [angle for (path, angle) in nxs_files_angles],
-                                  img_keys, sample_desc, Path(out_dir, filename))
+        _write_combined_proj_data(
+            combined_data,
+            [angle for (path, angle) in nxs_files_angles],
+            img_keys,
+            sample_desc,
+            Path(out_dir, filename),
+            [scan_config for (scan_config, _) in nxs_files_angles],
+        )
     print('Done!')
 
 
@@ -482,9 +487,14 @@ def _pad_image(
     return padded_image, pad_info
 
 
-def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
-                              img_keys:np.ndarray, sample_desc:str,
-                              file_path:str) -> None:
+def _write_combined_proj_data(
+    data:np.ndarray,
+    angles:np.ndarray,
+    img_keys:np.ndarray,
+    sample_desc:str,
+    file_path:str,
+    scan_configs: List[RegularScan],
+) -> None:
     """ Write the combined projection data to a NeXuS file.
 
     Parameters
@@ -503,6 +513,10 @@ def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
 
     file_path : str
         The path to save the output NeXuS file to.
+
+    scan_configs : List[RegularScan]
+        A list of regular scan config objects that contain NeXuS file path info
+        for the associated scan.
     """
     with h5py.File(file_path, 'w') as f:
         # some entries/metadata
@@ -534,6 +548,13 @@ def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
         rotation = nxdata.create_dataset("rotation_angle", data=angles)
         rotation.attrs["units"] = "degrees"
         rotation.attrs["axis"] = [1,]
+
+        # add filepaths where combined scans came from
+        hdf5_str_type = h5py.special_dtype(vlen=str)
+        filepaths = np.array([
+            str(config.path) for config in scan_configs
+        ], dtype=hdf5_str_type)
+        nxdata.attrs["origin"] = filepaths
 
 
 if __name__ == '__main__':
