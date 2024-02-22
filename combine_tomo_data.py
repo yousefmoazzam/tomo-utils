@@ -582,7 +582,10 @@ def _pad_image(
     """
     Pad image to match the given dimensions
     """
-    padded_image = np.zeros((y, x)) + np.min(image)
+    min_value = np.min(image)
+    if np.isnan(min_value):
+        min_value = 0
+    padded_image = np.zeros((y, x)) + min_value
     pad_info = np.zeros(4)
 
     # calculate x and y shifts to center the smaller image within the
