@@ -66,6 +66,14 @@ ScanConfig = Union[RegularScan, HalfScans]
     help="Scan numbers to skip within the given range",
 )
 @click.option(
+    "--stitch",
+    required=False,
+    multiple=True,
+    nargs=2,
+    type=int,
+    help="Pair of scan numbers to stitch top/bottom halves",
+)
+@click.option(
     '--out-dir',
     required=True,
     type=str,
@@ -87,6 +95,7 @@ def main(
     start_scan: int,
     end_scan: int,
     skip: Tuple[int],
+    stitch: Tuple[Tuple[int, int]],
     sample_desc: str,
     out_dir: str,
     data_type: str,
@@ -108,6 +117,9 @@ def main(
 
     skip : List[int]
         The scan numbers to skip.
+
+    stitch : Tuple[Tuple[int, int]]
+        A pair of scan numbers to stitch together (top and bottom halves).
 
     sample_desc : str
         A short description of the sample that will be place in the output NeXuS
@@ -206,7 +218,22 @@ def main(
                         "the NeXuS files")
             print(info_str)
     
-    nxs_files_angles: List[Tuple[RegularScan, float]] = []
+    nxs_files_angles: List[Tuple[ScanConfig, float]] = []
+    for (top, bottom) in stitch:
+        top_filepath_idx = list(
+            map(lambda path: str(top) in str(path), nxs_file_paths)
+        ).index(True)
+        top_filepath = nxs_file_paths.pop(top_filepath_idx)
+        bottom_filepath_idx = list(
+            map(lambda path: str(bottom) in str(path), nxs_file_paths)
+        ).index(True)
+        bottom_filepath = nxs_file_paths.pop(bottom_filepath_idx)
+        angle = _get_rotation_angle(top_filepath, angle_path)
+        nxs_files_angles.append((
+            HalfScans(top_path=top_filepath, bottom_path=bottom_filepath),
+            angle,
+        ))
+
     # Check that all these files exist, and keep fetching the associated
     # rotation angle from them as long as they do exist
     for file_path in nxs_file_paths:
@@ -250,8 +277,10 @@ def main(
             filename = f"{dataset[1]}.nxs"
             nxs_path = DPC_DATA_KEY_TEMPLATE(dataset[0], dataset[1])
 
-        max_x_dim, max_y_dim = \
-            _get_proj_max_dims(nxs_file_paths, nxs_path)
+        max_x_dim, max_y_dim = _get_proj_max_dims(
+            [config for (config, _) in nxs_files_angles],
+            nxs_path,
+        )
 
         combined_data, pad_info = _combine_proj_data(
             [scan_config for (scan_config, _) in nxs_files_angles],
@@ -333,15 +362,18 @@ def _get_rotation_angle(file_path: Path,
     return angle
 
 
-def _get_proj_max_dims(file_paths: List[Path], nxs_path: str
-                       ) -> Tuple[int, int]:
+def _get_proj_max_dims(
+    scan_configs: List[ScanConfig],
+    nxs_path: str
+) -> Tuple[int, int]:
     """Find the maximum value of the x dimension of all projections, and the
     maximum value of the y dimension of all projections.
 
     Parameters
     ----------
-    file_paths : List[Path]
-        A list of NeXuS files to combine.
+    scan_configs : List[ScanConfig]
+        A list of `ScanConfig` objects that describe the associated NeXuS files
+        to combine.
 
     nxs_path : str
         The common path within the NeXuS files where the data to be combined is
@@ -355,13 +387,32 @@ def _get_proj_max_dims(file_paths: List[Path], nxs_path: str
     x_dim = 0
     y_dim = 0
 
-    for file_path in file_paths:
-        with h5py.File(str(file_path), 'r') as proj:
-            data = proj[nxs_path]
-            if data.shape[0] > y_dim:
-                y_dim = data.shape[0]
-            if data.shape[1] > x_dim:
-                x_dim = data.shape[1]
+    for config in scan_configs:
+        if isinstance(config, RegularScan):
+            with h5py.File(str(config.path), 'r') as proj:
+                data = proj[nxs_path]
+                if data.shape[0] > y_dim:
+                    y_dim = data.shape[0]
+                if data.shape[1] > x_dim:
+                    x_dim = data.shape[1]
+        elif isinstance(config, HalfScans):
+            stitched_y_len = 0
+            with h5py.File(config.top_path, "r") as f:
+                shape = f[nxs_path].shape
+                stitched_x_len = shape[1]
+                stitched_y_len += shape[0]
+            with h5py.File(config.bottom_path, "r") as f:
+                shape = f[nxs_path].shape
+                stitched_y_len += shape[0]
+
+            if stitched_y_len > y_dim:
+                y_dim = stitched_y_len
+            if stitched_x_len > x_dim:
+                x_dim = stitched_x_len
+        else:
+            raise ValueError(
+                f"Unsupported scan config type: {type(config)}"
+            )
 
     return x_dim, y_dim
 
@@ -403,6 +454,17 @@ def _combine_proj_data(
             _get_regular_scan_data(
                 idx,
                 scan_config.path,
+                nxs_path,
+                combined_data,
+                pad_info,
+                x_dim,
+                y_dim,
+            )
+        elif isinstance(scan_config, HalfScans):
+            _get_half_scans_data(
+                idx,
+                scan_config.top_path,
+                scan_config.bottom_path,
                 nxs_path,
                 combined_data,
                 pad_info,
@@ -453,6 +515,65 @@ def _get_regular_scan_data(
     combined_data[idx,:,:] = new_data
 
 
+def _get_half_scans_data(
+    idx: int,
+    top_file_path: Path,
+    bottom_file_path: Path,
+    data_path: str,
+    combined_data: np.ndarray,
+    pad_info: np.ndarray,
+    x_dim: int,
+    y_dim: int,
+) -> None:
+    """
+    Stitch top and bottom halves of partial scans.
+    """
+    X_VALUES_PATH = "/entry/It/SampleX_value_set"
+
+    with h5py.File(top_file_path, "r") as f:
+        top_shape = f[data_path].shape
+        top_x_values = f[X_VALUES_PATH][:]
+
+    with h5py.File(bottom_file_path, "r") as f:
+        bottom_shape = f[data_path].shape
+        bottom_x_values = f[X_VALUES_PATH][:]
+
+    stitched_scan_height: int = top_shape[0] + bottom_shape[0]
+    stitched_scan_width: int = max(top_shape[1], bottom_shape[1])
+    stitched_scan = np.empty((stitched_scan_height, stitched_scan_width))
+
+    with h5py.File(top_file_path, "r") as f:
+        dataset: h5py.Dataset = f[data_path]
+        top_data: np.ndarray = dataset[:]
+
+    stitched_scan[0:top_shape[0], :] = top_data
+
+    with h5py.File(bottom_file_path, "r") as f:
+        dataset: h5py.Dataset = f[data_path]
+        bottom_data: np.ndarray = dataset[:]
+
+    diff = np.abs(top_x_values - bottom_x_values[0])
+    min_val_idx = np.argmin(diff)
+
+    bottom_half_container: np.ndarray = np.zeros((bottom_shape[0], top_shape[1]))
+    bottom_half_container[:, :bottom_data.shape[1]] = bottom_data
+    stitched_scan[top_shape[0]:, :] = np.roll(
+        bottom_half_container,
+        shift=min_val_idx,
+        axis=1,
+    )
+
+    if stitched_scan.shape[0] != y_dim or stitched_scan.shape[1] != x_dim:
+        stitched_scan, pad_info[idx] = _pad_image(stitched_scan, x_dim, y_dim)
+    else:
+        # y padding
+        pad_info[idx, 0] = pad_info[idx, 1] = 0
+        # x padding
+        pad_info[idx, 2] = pad_info[idx, 3] = 0
+
+    combined_data[idx,:,:] = stitched_scan
+
+
 def _pad_image(
     image: np.ndarray,
     x: int,
@@ -493,7 +614,7 @@ def _write_combined_proj_data(
     img_keys:np.ndarray,
     sample_desc:str,
     file_path:str,
-    scan_configs: List[RegularScan],
+    scan_configs: List[ScanConfig],
 ) -> None:
     """ Write the combined projection data to a NeXuS file.
 
@@ -514,9 +635,9 @@ def _write_combined_proj_data(
     file_path : str
         The path to save the output NeXuS file to.
 
-    scan_configs : List[RegularScan]
-        A list of regular scan config objects that contain NeXuS file path info
-        for the associated scan.
+    scan_configs : List[ScanConfig]
+        A list of scan config objects that contain NeXuS file path info for the
+        associated scan(s).
     """
     with h5py.File(file_path, 'w') as f:
         # some entries/metadata
@@ -552,7 +673,12 @@ def _write_combined_proj_data(
         # add filepaths where combined scans came from
         hdf5_str_type = h5py.special_dtype(vlen=str)
         filepaths = np.array([
-            str(config.path) for config in scan_configs
+            str(config.path)
+            if isinstance(config, RegularScan)
+            else np.array([
+                str(config.top_path), str(config.bottom_path)
+                ], dtype=hdf5_str_type)
+            for config in scan_configs
         ], dtype=hdf5_str_type)
         nxdata.attrs["origin"] = filepaths
 
