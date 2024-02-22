@@ -437,21 +437,7 @@ def _get_regular_scan_data(
     # - place the smaller projection in the (approximate) centre of the max
     # dimensions
     if data.shape[0] != y_dim or data.shape[1] != x_dim:
-        new_data = np.zeros((y_dim, x_dim)) + np.min(data)
-        # calculate x and y shifts to center the smaller image within the
-        # max dim values
-        y_diff = y_dim - data.shape[0]
-        y_shift = y_diff // 2
-        x_diff = x_dim - data.shape[1]
-        x_shift = x_diff // 2
-        # y padding
-        pad_info[idx, 0] = y_shift
-        pad_info[idx, 1] = data.shape[0] + y_shift
-        # x padding
-        pad_info[idx, 2] = x_shift
-        pad_info[idx, 3] = data.shape[1] + x_shift
-        new_data[y_shift:data.shape[0] + y_shift,
-            x_shift:data.shape[1] + x_shift] = data
+        new_data, pad_info[idx] = _pad_image(data, x_dim, y_dim)
     else:
         # y padding
         pad_info[idx, 0] = pad_info[idx, 1] = 0
@@ -460,6 +446,40 @@ def _get_regular_scan_data(
         new_data = data
 
     combined_data[idx,:,:] = new_data
+
+
+def _pad_image(
+    image: np.ndarray,
+    x: int,
+    y: int,
+) -> Tuple[np.ndarray, Tuple[int, int]]:
+    """
+    Pad image to match the given dimensions
+    """
+    padded_image = np.zeros((y, x)) + np.min(image)
+    pad_info = np.zeros(4)
+
+    # calculate x and y shifts to center the smaller image within the
+    # max dim values
+    y_diff = y - image.shape[0]
+    y_shift = y_diff // 2
+    x_diff = x - image.shape[1]
+    x_shift = x_diff // 2
+
+    # y padding
+    pad_info[0] = y_shift
+    pad_info[1] = image.shape[0] + y_shift
+
+    # x padding
+    pad_info[2] = x_shift
+    pad_info[3] = image.shape[1] + x_shift
+
+    padded_image[
+        y_shift:image.shape[0] + y_shift,
+        x_shift:image.shape[1] + x_shift
+    ] = image
+
+    return padded_image, pad_info
 
 
 def _write_combined_proj_data(data:np.ndarray, angles:np.ndarray,
