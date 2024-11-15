@@ -70,9 +70,9 @@ def main(in_file: Path, out_file: Path, roi: Tuple[int, int, int, int],
     # Load the combined data
     print('Loading data...')
     with h5py.File(in_file, 'r') as f:
-        data = f['/entry/tomo_entry/data/data'][:, :, :]
-        rot_angles = f['/entry/tomo_entry/data/rotation_angle'][:]
-        im_key = f['/entry/tomo_entry/instrument/detector/image_key'][:]
+        data = f['/entry/data/data'][:, :, :]
+        rot_angles = f['/entry/data/rotation_angle'][:]
+        im_key = f['/entry/data/image_key'][:]
 
     # Create Signal2D objct to hold the data
     signal = hs.signals.Signal2D(data)
